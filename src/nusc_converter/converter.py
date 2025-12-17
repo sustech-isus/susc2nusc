@@ -261,8 +261,8 @@ class Susc2NuscConverter:
                 "prev": prev_token,
                 "next": next_token,
                 "scene_token": scene_token,
-                "data": {},
-                "anns": [],
+                # "data": {},
+                # "anns": [],
             }
             self.tables["sample"].append(sample_record)
 
@@ -309,7 +309,6 @@ class Susc2NuscConverter:
         elif self.fetch_map:
             logger.error(f"Skipping OSM fetch: No GPS data collected for {scene_name}")
 
-        # Finalize Scene Record
         self.tables["scene"].append(
             {
                 "token": scene_token,
@@ -318,14 +317,14 @@ class Susc2NuscConverter:
                 "first_sample_token": sample_tokens[0],
                 "last_sample_token": sample_tokens[-1],
                 "name": scene_name,
-                "description": "Converted from SUScape",
+                "description": f"Converted from SUScape {scene_name}",
             }
         )
 
     def _process_calibration(self, scene_path: Path, scene_name: str) -> dict[str, str]:
         """
         Reads calibration from `calib/camera/{cam}.json`.
-        Assumes LIDAR is identity to vehicle frame.
+        Use LiDAR frame as vehicle frame.
         """
         calib_tokens = {}
 
@@ -364,8 +363,6 @@ class Susc2NuscConverter:
             trans = T_sv[:3, 3]
             rot_mat = T_sv[:3, :3]
 
-            # P_lidar_new = C @ P_lidar_old =
-            # C @ (R_old @ P_sensor + t_old) = (C @ R_old) @ P_sensor + (C @ t_old)
             trans = self.coord_transform @ trans
             rot_mat = self.coord_transform @ rot_mat
 
@@ -388,6 +385,10 @@ class Susc2NuscConverter:
     def _process_ego_pose(
         self, scene_path: Path, frame_name: str, timestamp: int, scene_name: str
     ) -> tuple[str, np.ndarray, Quaternion, float | None, float | None]:
+        """
+        Read lidar pose as ego pose from `lidar_pose/{frame_name}.json`.
+        Read GPS infos from `ego_pose/{frame_name}.json`.
+        """
         lidar_pose_file = scene_path / "lidar_pose" / f"{frame_name}.json"
         with open(lidar_pose_file) as f:
             lidar_data = LidarPose.model_validate_json(f.read())
@@ -443,7 +444,6 @@ class Susc2NuscConverter:
         sample_record,
     ):
         # 1. Lidar
-        # TODO this it slow, maybe mp it
         lidar_src = scene_path / "lidar" / f"{frame_name}.pcd"
         if lidar_src.exists():
             lidar_token = generate_token(
@@ -484,7 +484,7 @@ class Susc2NuscConverter:
                     "calibrated_sensor_token": calib_sensors["LIDAR_TOP"],
                     "timestamp": timestamp,
                     "fileformat": "pcd",
-                    "is_key_frame": True,  # TODO how to check key frame?
+                    "is_key_frame": True,  # TODO how to pick key frame?
                     "height": 0,  # Lidar has no height
                     "width": 0,  # Lidar has no width
                     "filename": rel_path,
@@ -493,7 +493,7 @@ class Susc2NuscConverter:
                 }
             )
 
-            sample_record["data"]["LIDAR_TOP"] = lidar_token
+            # sample_record["data"]["LIDAR_TOP"] = lidar_token
 
         # 2. Cameras
         for susc_cam, nusc_cam in self.camera_mapping.items():
@@ -529,7 +529,7 @@ class Susc2NuscConverter:
                     }
                 )
 
-                sample_record["data"][nusc_cam] = cam_token
+                # sample_record["data"][nusc_cam] = cam_token
 
     def _process_annotations(
         self,
@@ -566,7 +566,7 @@ class Susc2NuscConverter:
                     {
                         "token": inst_token,
                         "category_token": self.category_mapping[cat_name],
-                        "nbr_annotations": 0,
+                        "nbr_annotations": 0,  # TODO calculate nbr_annotations
                         # TODO first/last annotation tokens should be filled later
                         "first_annotation_token": "",
                         "last_annotation_token": "",
@@ -614,12 +614,12 @@ class Susc2NuscConverter:
                     "rotation": rot_global_quat.elements.tolist(),
                     "prev": "",  # will be filled later
                     "next": "",  # will be filled later
-                    "num_lidar_pts": 0,
-                    "num_radar_pts": 0,
+                    "num_lidar_pts": 0,  # TODO calculate num_lidar_pts
+                    "num_radar_pts": 0,  # TODO calculate num_radar_pts
                 }
             )
 
-            sample_record["anns"].append(ann_token)
+            # sample_record["anns"].append(ann_token)
 
     def save_tables(self):
         self._link_sample_data()
@@ -631,6 +631,9 @@ class Susc2NuscConverter:
                 json.dump(records, f, indent=2)
 
     def _link_sample_data(self):
+        """
+        Link sample data records to each other based on calibrated sensor token.
+        """
         data_by_sensor = defaultdict(list)
         for rec in self.tables["sample_data"]:
             data_by_sensor[rec["calibrated_sensor_token"]].append(rec)
@@ -644,13 +647,20 @@ class Susc2NuscConverter:
                     recs[i]["next"] = recs[i + 1]["token"]
 
     def _link_annotations(self):
+        """
+        Link annotations records to each other based on instance token.
+        Also populate instance statistics.
+        """
+        instance_lookup = {rec["token"]: rec for rec in self.tables["instance"]}
+
         ann_by_inst = defaultdict(list)
         for rec in self.tables["sample_annotation"]:
             ann_by_inst[rec["instance_token"]].append(rec)
 
+        # get sample timestamp from sample table
         sample_time = {s["token"]: s["timestamp"] for s in self.tables["sample"]}
 
-        for _inst_token, recs in ann_by_inst.items():
+        for inst_token, recs in ann_by_inst.items():
             recs.sort(key=lambda x: sample_time.get(x["sample_token"], 0))
 
             for i in range(len(recs)):
@@ -658,6 +668,12 @@ class Susc2NuscConverter:
                     recs[i]["prev"] = recs[i - 1]["token"]
                 if i < len(recs) - 1:
                     recs[i]["next"] = recs[i + 1]["token"]
+
+            if inst_token in instance_lookup:
+                inst_rec = instance_lookup[inst_token]
+                inst_rec["nbr_annotations"] = len(recs)
+                inst_rec["first_annotation_token"] = recs[0]["token"]
+                inst_rec["last_annotation_token"] = recs[-1]["token"]
 
     def fetch_osm_map(
         self, scene_name: str, north: float, south: float, east: float, west: float
