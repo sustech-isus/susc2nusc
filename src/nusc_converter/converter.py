@@ -14,7 +14,14 @@ from pyquaternion import Quaternion
 from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
 
-from .utils import EgoPose, Label, LidarPose, expand_scene_ranges, generate_token
+from .utils import (
+    CameraCalibration,
+    EgoPose,
+    Label,
+    LidarPose,
+    expand_scene_ranges,
+    generate_token,
+)
 
 
 class Susc2NuscConverter:
@@ -350,11 +357,11 @@ class Susc2NuscConverter:
                 continue
 
             with open(calib_file) as f:
-                data = json.load(f)
+                data = CameraCalibration.model_validate_json(f.read())
 
             # Inverse T_cl (Camera->LiDAR) to get T_sv (Vehicle->Sensor/Camera)
-            extrinsic_flat = data["extrinsic"]
-            intrinsic = data["intrinsic"]
+            extrinsic_flat = data.extrinsic
+            intrinsic = data.intrinsic
 
             T_cl = np.array(extrinsic_flat).reshape(4, 4)
 
