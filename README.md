@@ -2,17 +2,33 @@
 
 **This project was partially developed with the assistance of AI tools.**
 
-This project provides tools to convert the **SUScape** dataset into the **NuScenes** format (which can be parsed by [nuscenes-devkit](https://github.com/nutonomy/nuscenes-devkit)). It also includes features to visualize the dataset using **Rerun**.
+This project provides tools to convert the **SUScape** dataset into the **NuScenes** format (which can be parsed by [nuscenes-devkit](https://github.com/nutonomy/nuscenes-devkit)). It also includes features to visualize the dataset using [rerun](https://github.com/rerun-io/rerun).
+
+Currently, the converter supports the following components:
+
+- **Sensors** (LiDAR, Camera)
+- **Annotations** (3D bounding boxes)
+  - Visibility, attributes and keyframes picking are not included, as they are not available in SUScape
+- **Calibration** 
+  - The vehicle coordinate system is defined to be identical to the LiDAR coordinate system, following SUScape
+
+So the converted NuScenes-formatted dataset is sufficient for most tasks. However, full parity with the official NuScenes dataset is not achievable due to missing or unsupported data in SUScape.
 
 ## Installation
 
 This project uses [uv](https://github.com/astral-sh/uv) for dependency management.
 
 1. Clone the repository.
-2. Install the package in editable mode with dependencies:
+2. Install the package with dependencies:
 
 ```bash
-uv pip install -e ".[osm,vis]"
+uv sync --all-extras
+```
+
+If you only need the conversion functionality (without visualization):
+
+```bash
+uv sync 
 ```
 
 Alternatively, `pip install -e .` works if you manage venv manually.
@@ -102,5 +118,5 @@ output/susc_nusc/
 ## TODO
 
 - [x] Verify the coordinate system correctness
-- [ ] Parallel scene conversion or multiprocessing for some heavy tasks(e.g. lidar conversion) only
 - [ ] Radar / Map
+- [ ] canbus?
