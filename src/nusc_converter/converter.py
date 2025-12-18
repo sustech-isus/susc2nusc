@@ -146,6 +146,7 @@ class Susc2NuscConverter:
                     "token": token,
                     "name": nusc_cat_name,
                     "description": f"Mapped from SUScape {susc_cat_name}",
+                    "index": len(self.tables["category"]),
                 }
             )
             self.category_mapping[nusc_cat_name] = token
